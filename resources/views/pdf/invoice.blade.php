@@ -153,7 +153,13 @@
         <tbody>
             @foreach($invoice->items as $item)
             <tr>
-                <td>{{ $item->description }}</td>
+                <td>
+                    {{ $item->description }}
+                    
+                    @if($item->reference && $item->reference->label)
+                        <br><small style="color: #666; font-size: 0.9em;">{{ $item->reference->label }}</small>
+                    @endif
+                </td>
                 <td>{{ $item->quantity }}</td>
                 <td>{{ $item->formattedPrice }}</td>
                 <td>{{ $item->formattedTotal }}</td>
