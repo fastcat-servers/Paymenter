@@ -2,6 +2,7 @@
 
 namespace App\Admin\Widgets;
 
+use App\Enums\DashboardPeriod;
 use App\Enums\InvoiceTransactionStatus;
 use App\Models\InvoiceTransaction;
 use App\Models\Service;
@@ -12,17 +13,26 @@ use Flowframe\Trend\Trend;
 use Flowframe\Trend\TrendValue;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
+use Livewire\Attributes\On;
 
 class Overview extends BaseWidget
 {
     // Poll every 5 minutes (5m doesn't work somehow)
     protected ?string $pollingInterval = '600s';
 
+    public ?string $period = null;
+
+    #[On('dashboard-period-updated')]
+    public function updatePeriod(string $period): void
+    {
+        $this->period = $period;
+    }
+
     protected function getStats(): array
     {
         return [
             $this->invoiceTransaction(),
-            // Fewer new tickets is the good outcome here, so the trend color is inverted
+            // Fewer new tickets is the good outcome, so the trend color is inverted
             $this->getData(Ticket::class, 'Tickets', lowerIsBetter: true),
             $this->getData(Service::class, 'Services'),
         ];
@@ -50,14 +60,19 @@ class Overview extends BaseWidget
         return $this->stat($name, $chart, $previous, $lowerIsBetter);
     }
 
+    private function period(): DashboardPeriod
+    {
+        return DashboardPeriod::fromValue($this->period);
+    }
+
     private function trend(Trend $trend): Trend
     {
         return $trend
             ->between(
-                start: now()->subMonth()->startOfDay(),
+                start: $this->period()->start(),
                 end: now(),
             )
-            ->perDay();
+            ->interval($this->period()->interval());
     }
 
     /**
@@ -65,10 +80,10 @@ class Overview extends BaseWidget
      */
     private function previousPeriod(Builder $query): Builder
     {
-        $start = now()->subMonth()->startOfDay();
+        $start = $this->period()->start();
 
         return $query
-            ->where('created_at', '>=', $start->copy()->subMonth()->startOfDay())
+            ->where('created_at', '>=', $this->period()->start($start))
             ->where('created_at', '<', $start);
     }
 
@@ -80,13 +95,16 @@ class Overview extends BaseWidget
 
         $percentage = $previous > 0 ? (abs($change) / $previous) * 100 : 0;
 
-        $isPositive = $lowerIsBetter ? $change <= 0 : $change >= 0;
+        $color = ($lowerIsBetter ? $change <= 0 : $change >= 0) ? 'success' : 'danger';
 
         return Stat::make($label, $current)
-            ->description(($change >= 0 ? 'Increased by ' : 'Decreased by ') . number_format($percentage, 2) . '% (last 30 days)')
+            // The sparkline only reads its color when Alpine initializes it, so key the stat on the
+            // color to make Livewire replace the element when it changes (filamentphp/filament#13518)
+            ->key("{$label}-{$color}")
+            ->description(($change >= 0 ? 'Increased by ' : 'Decreased by ') . number_format($percentage, 2) . '% (' . strtolower($this->period()->label()) . ')')
             ->descriptionIcon($change >= 0 ? 'heroicon-m-arrow-trending-up' : 'heroicon-m-arrow-trending-down')
             ->chart($chart->map(fn (TrendValue $value) => $value->aggregate)->toArray())
-            ->color($isPositive ? 'success' : 'danger');
+            ->color($color);
     }
 
     public static function canView(): bool
