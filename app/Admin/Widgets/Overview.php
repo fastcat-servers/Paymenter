@@ -22,7 +22,8 @@ class Overview extends BaseWidget
     {
         return [
             $this->invoiceTransaction(),
-            $this->getData(Ticket::class, 'Tickets'),
+            // Fewer new tickets is the good outcome here, so the trend color is inverted
+            $this->getData(Ticket::class, 'Tickets', lowerIsBetter: true),
             $this->getData(Service::class, 'Services'),
         ];
     }
@@ -40,13 +41,13 @@ class Overview extends BaseWidget
         return $this->stat('Revenue', $chart, $previous);
     }
 
-    private function getData(string $model, string $name): Stat
+    private function getData(string $model, string $name, bool $lowerIsBetter = false): Stat
     {
         $chart = $this->trend(Trend::model($model))->count();
 
         $previous = $this->previousPeriod($model::query())->count();
 
-        return $this->stat($name, $chart, $previous);
+        return $this->stat($name, $chart, $previous, $lowerIsBetter);
     }
 
     private function trend(Trend $trend): Trend
@@ -71,7 +72,7 @@ class Overview extends BaseWidget
             ->where('created_at', '<', $start);
     }
 
-    private function stat(string $label, Collection $chart, float|int $previous): Stat
+    private function stat(string $label, Collection $chart, float|int $previous, bool $lowerIsBetter = false): Stat
     {
         $current = $chart->sum('aggregate');
 
@@ -79,11 +80,13 @@ class Overview extends BaseWidget
 
         $percentage = $previous > 0 ? (abs($change) / $previous) * 100 : 0;
 
+        $isPositive = $lowerIsBetter ? $change <= 0 : $change >= 0;
+
         return Stat::make($label, $current)
             ->description(($change >= 0 ? 'Increased by ' : 'Decreased by ') . number_format($percentage, 2) . '% (last 30 days)')
             ->descriptionIcon($change >= 0 ? 'heroicon-m-arrow-trending-up' : 'heroicon-m-arrow-trending-down')
             ->chart($chart->map(fn (TrendValue $value) => $value->aggregate)->toArray())
-            ->color($change >= 0 ? 'success' : 'danger');
+            ->color($isPositive ? 'success' : 'danger');
     }
 
     public static function canView(): bool
